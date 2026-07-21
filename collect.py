@@ -7,10 +7,6 @@ import argparse
 
 pd.set_option('display.max_columns', None)
 
-#%%
-
-df = pd.read_parquet("data/2019_01_R.parquet")
-df.head()
 # %%
 
 class CollectResults:
@@ -67,22 +63,21 @@ class CollectResults:
             time.sleep(10)
       
 #%%
+if __name__ == "__main__":    
+    parser = argparse.ArgumentParser(description='Collect F1 results data.')
     
-parser = argparse.ArgumentParser(description='Collect F1 results data.')
-
-parser.add_argument('--start',type=int, default=0)
-parser.add_argument('--stop',type=int, default=0)
-
-parser.add_argument('--years', '-y', nargs='+', type=int)
-parser.add_argument('--modes', '-m', nargs='+')
-
-args = parser.parse_args()
-
-if args.years:
-    collect = CollectResults(args.years, args.modes)
-
-elif args.start and args.stop:
-    years = [i for i in range(args.start, args.stop+1)]
-    collect = CollectResults(years, args.modes)
+    parser.add_argument('--start',type=int, default=0)
+    parser.add_argument('--stop',type=int, default=0)
+    parser.add_argument('--years', '-y', nargs='+', type=int)
+    parser.add_argument('--modes', '-m', nargs='+')
     
-collect.process_years()
+    args = parser.parse_args()
+    
+    if args.years:
+        collect = CollectResults(args.years, args.modes)
+    
+    elif args.start and args.stop:
+        years = [i for i in range(args.start, args.stop+1)]
+        collect = CollectResults(years, args.modes)
+        
+    collect.process_years()

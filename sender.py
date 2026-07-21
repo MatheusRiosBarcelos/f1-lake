@@ -1,4 +1,5 @@
 #%%
+import argparse
 import dotenv
 import os
 import boto3
@@ -41,9 +42,16 @@ class Sender:
             self.process_file(os.path.join(folder, f))
             
 # %%
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Send F1 results data to S3.')
+    parser.add_argument('--bucket', '-b')
+    parser.add_argument('--bucket_path', '-f', default="f1/results")
+    parser.add_argument('--folder', '-d', default="data")
+    args = parser.parse_args()
 
-send = Sender(bucket_name="datalake-raw-learn", bucket_folder="f1/results")
-# %%
+    if args.bucket:
+        send = Sender(bucket_name=args.bucket, bucket_folder=args.bucket_path)
+        send.process_folder(args.folder)
 
-send.process_folder("data")
-# %%
+    else:
+        print("Please provide a bucket name using --bucket or -b argument.")
