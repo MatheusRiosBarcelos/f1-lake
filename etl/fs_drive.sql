@@ -75,9 +75,11 @@ tb_life AS (SELECT driverId,
     --Média de Ultrapassagens
     AVG(gridposition - position) AS avg_overtake,
     AVG(CASE WHEN mode = 'Race' THEN gridposition - position END) AS avg_overtake_race,
-    AVG(CASE WHEN mode = 'Sprint' THEN gridposition - position END) AS avg_overtake_sprint,
+    AVG(CASE WHEN mode = 'Sprint' THEN gridposition - position END) AS avg_overtake_sprint
 FROM
   tb_results
 GROUP BY driverId)
 
-SELECT * FROM tb_life
+SELECT date('2024-04-21') AS dt_ref, *
+FROM tb_life
+ORDER BY driverid
