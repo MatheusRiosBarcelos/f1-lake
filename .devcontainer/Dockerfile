@@ -1,5 +1,5 @@
 # Use the official Python image from the Docker Hub
-FROM mcr.microsoft.com/devcontainers/python:3.11
+FROM mcr.microsoft.com/devcontainers/python:3.12.3
 
 # Install dependencies
 # Remove stale Yarn repo (GPG key expired on Debian Trixie) before running apt-get update
