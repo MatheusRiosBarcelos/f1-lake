@@ -2,9 +2,10 @@
 
 import mlflow
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from sklearn import model_selection
-from sklearn import ensemble
+from sklearn import ensemble    
 from sklearn import metrics
 from sklearn import pipeline
 
@@ -88,10 +89,6 @@ missing = imputation.ArbitraryNumberImputer(
     variables= X_train.columns.tolist()
     )
 
-X_train_transform = missing.fit_transform(X_train)
-
-# %%
-
 clf = ensemble.RandomForestClassifier(
     min_samples_leaf=50, 
     n_estimators=500,                                                                     
@@ -99,59 +96,46 @@ clf = ensemble.RandomForestClassifier(
     n_jobs=4
     )
 
-clf.fit(X_train_transform, y_train)
+model = pipeline.Pipeline(steps=[
+    ('Imputation', missing),
+    ("RandomForest", clf)
+    ])
 
 # %%
 
-y_train_pred = clf.predict(X_train_transform)
-y_train_prob = clf.predict_proba(X_train_transform)[:,1]
+with mlflow.start_run():
+    model.fit(X_train, y_train)
+    y_train_prob = model.predict_proba(X_train)[:,1]
+    roc_train = metrics.roc_curve(y_train, y_train_prob)
+    auc_train = metrics.roc_auc_score(y_train, y_train_prob)
+    mlflow.log_metric("ROC Train", auc_train)
+    
+    model.fit(X_test, y_test)
+    y_test_prob = model.predict_proba(X_test)[:,1]
+    roc_test = metrics.roc_curve(y_test, y_test_prob)
+    auc_test = metrics.roc_auc_score(y_test, y_test_prob)
+    mlflow.log_metric("ROC Test", auc_test)
+    
+    y_oot_pred = model.predict(X_oot)
+    y_oot_prob = model.predict_proba(X_oot)[:,1]
+    auc_oot = metrics.roc_auc_score(y_oot, y_oot_prob) 
+    roc_oot = metrics.roc_curve(y_oot, y_oot_prob) 
+    mlflow.log_metric("ROC oot", auc_oot)
 
-auc_train = metrics.roc_auc_score(y_train, y_train_prob)
-roc_train = metrics.roc_curve(y_train, y_train_prob)
-print("AUC Train:", auc_train)
+    plt.figure(dpi= 100)
+    plt.plot(roc_train[0], roc_train[1])
+    plt.plot(roc_test[0], roc_test[1])
+    plt.plot(roc_oot[0], roc_oot[1])
+    plt.legend([f"Treino: {auc_train:.4f}", f"Teste: {auc_test:.4f}", f"OOT: {auc_oot:.4f}"])
+    plt.grid(True)
+    plt.title("Curva ROC")
+    plt.savefig("roc_curve.png")
+    mlflow.log_artifact("roc_curve.png")
 
-# %%
-X_test_transform = missing.fit_transform(X_test)
-
-y_test_pred = clf.predict(X_test_transform)
-y_test_prob = clf.predict_proba(X_test_transform)[:,1]
-
-auc_test = metrics.roc_auc_score(y_test, y_test_prob)
-roc_test = metrics.roc_curve(y_test, y_test_prob)
-print("AUC Test:", auc_test)
-
-# %%
-
-X_oot_transform = missing.fit_transform(X_oot)
-
-y_oot_pred = clf.predict(X_oot_transform)
-y_oot_prob = clf.predict_proba(X_oot_transform)[:,1]
-
-auc_oot = metrics.roc_auc_score(y_oot, y_oot_prob)
-roc_oot = metrics.roc_curve(y_oot, y_oot_prob)
-print("AUC OOT:", auc_oot)
-
-# %%
-
-import matplotlib.pyplot as plt
-
-plt.plot(roc_train[0], roc_train[1])
-plt.plot(roc_test[0], roc_test[1])
-plt.plot(roc_oot[0], roc_oot[1])
-plt.legend([f"Treino: {auc_train:.4f}", f"Teste: {auc_test:.4f}", f"OOT: {auc_oot:.4f}"])
-plt.grid(True)
-plt.title("Curva ROC")
-
-# %%
-
-feature_importance = pd.Series(clf.feature_importances_, index=X_train_transform.columns)
-feature_importance = feature_importance.sort_values(ascending=False)
-feature_importance.head(20)
-
-# %%
-
-df_oot['pred'] = y_oot_prob
-
-df_oot[['driverid_life', 'dt_ref_life', 'flChampion', 'pred']].sort_values(['dt_ref_life','pred'], ascending=False)
-
-# %%
+    feature_importance = pd.Series(clf.feature_importances_, index=X_train.columns)
+    feature_importance = feature_importance.sort_values(ascending=False)
+    feature_importance.to_markdown("feature_importances.md")
+    mlflow.log_artifact("feature_importances.md")
+    
+    model.fit(df[features], df['flChampion'])
+    mlflow.sklearn.log_model(model, name="model", skops_trusted_types=["feature_engine.imputation.arbitrary_number.ArbitraryNumberImputer"],)
