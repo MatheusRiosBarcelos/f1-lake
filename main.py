@@ -14,7 +14,7 @@ while True:
     print("Iniciando processo...")
 
     print('Coletando dados do ano atual...')
-    collect_data = CollectResults(years = [datetime.datetime.now().year])
+    collect_data = CollectResults(years = range(2020, 2027))
     collect_data.process_years()
 
     print('Enviando dados...')

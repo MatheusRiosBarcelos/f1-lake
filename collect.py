@@ -38,8 +38,17 @@ class CollectResults:
         return df
     
     def save_data(self,df:pd.DataFrame,year:int,gp:int,mode:str):
+        # Convert any nanosecond-precision datetime columns to microsecond precision
+        for col in df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
+            df[col] = df[col].astype('datetime64[us]')
+        
         filename = f"data/{year}_{gp:02}_{mode}.parquet"
-        df.to_parquet(filename, index=False)
+        df.to_parquet(
+            filename, 
+            index=False,
+            coerce_timestamps='us',
+            allow_truncated_timestamps=True
+            )
     
     def process(self, year, gp, mode):
         df = self.get_data(year, gp, mode)
