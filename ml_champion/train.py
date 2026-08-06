@@ -1,6 +1,7 @@
 import mlflow
 import pandas as pd
 import matplotlib.pyplot as plt
+import spark
 
 from sklearn import model_selection
 from sklearn import ensemble
