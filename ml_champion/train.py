@@ -133,5 +133,8 @@ with mlflow.start_run():
     mlflow.sklearn.log_model(
         model,
         name="model", 
+        # Sem isto o serving devolve a classe (0/1); o que interessa para
+        # ranquear pilotos e a probabilidade.
+        pyfunc_predict_fn="predict_proba",
         input_example = df[features].sample(5, random_state=42), 
     )

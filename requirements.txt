@@ -1,0 +1,8 @@
+streamlit>=1.40
+altair>=5.2
+pandas>=2.1
+numpy>=1.26
+requests>=2.31
+databricks-sql-connector>=3.4
+pyarrow>=14.0
+python-dotenv>=1.0
