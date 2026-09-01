@@ -1,5 +1,7 @@
 # 🏎️ F1 Lake — Pipeline de Dados e ML para Previsão de Campeões de F1
 
+**▶️ App no ar: [f1championsmodel.streamlit.app](https://f1championsmodel.streamlit.app)**
+
 Pipeline de dados end-to-end que coleta dados históricos de Fórmula 1, os organiza em uma arquitetura de Data Lakehouse (camadas Bronze/Silver/Gold) e treina um modelo de Machine Learning para prever se um piloto será campeão da temporada, com base em seu histórico recente de performance.
 
 O projeto cobre o ciclo completo de um caso de uso de dados: **ingestão → armazenamento → transformação → feature engineering → modelagem → serving**.
@@ -84,7 +86,8 @@ As features mais relevantes são as relacionadas à **posição média de largad
 | Orquestração de lakehouse | **Nekt SDK** | Leitura/gestão de tabelas do lakehouse | Databricks / local (export) |
 | Machine Learning | **scikit-learn** (RandomForest), **feature-engine** | Modelagem preditiva e tratamento de dados faltantes | Databricks |
 | MLOps | **MLflow** (tracking + model registry) | Rastreabilidade de experimentos e versionamento de modelos | Databricks (gerenciado) |
-| Serving | **Flask** | API REST para consumo do modelo em produção | Databricks / local |
+| Serving | **Flask**, **Databricks Model Serving** | API REST para consumo do modelo em produção | Databricks / local |
+| Interface | **Streamlit**, **Altair** | Plataforma de consumo do modelo (ranking, raio-x, simulador) | Streamlit Community Cloud |
 | Ambiente / DevOps | **Dev Containers (Docker)**, **python-dotenv** | Ambiente de desenvolvimento reprodutível com Java + Spark | Local |
 
 ---
@@ -108,6 +111,10 @@ f1-lake/
 │   ├── predict.py              # Script de teste da API
 │   ├── feature_importances.md  # Importância das variáveis
 │   └── roc_curve.png           # Curva ROC do modelo
+├── streamlit_app.py           # [APP] Entrypoint da plataforma Streamlit
+├── f1_app/                    # [APP] Modulos da interface (dados, scoring, graficos, telas)
+├── .env.example               # [APP] Modelo do .env com as credenciais do Databricks
+├── scripts/probe_endpoint.py  # [APP] Diagnostico do endpoint de serving
 ├── .devcontainer/             # Ambiente de desenvolvimento local (Docker + Spark + Jupyter)
 └── data/                      # Dados intermediários (parquet/csv) da etapa local
 ```
@@ -137,6 +144,146 @@ Os arquivos em `etl/` e `ml_champion/` foram desenhados para rodar no workspace 
 4. Publique as queries de `etl/*.sql` (ou o pipeline declarativo `etl/main.py`) como uma **Lakeflow Pipeline**, apontando `f1_results` (camada Bronze, alimentada a partir do S3) como fonte.
 5. Rode `ml_champion/train.py` em um notebook Databricks — o MLflow tracking é gerenciado automaticamente pelo workspace.
 6. `ml_champion/app.py` pode ser servido tanto localmente quanto via Databricks Model Serving, carregando o modelo do Model Registry.
+
+---
+
+## 🖥️ Plataforma de consumo (Streamlit)
+
+🔗 **[f1championsmodel.streamlit.app](https://f1championsmodel.streamlit.app)**
+
+O modelo servido no Databricks é consumido por um app **Streamlit** (`streamlit_app.py`), que fecha o
+ciclo do projeto: em vez de um `curl` no endpoint, o usuário navega pela temporada e vê a leitura do
+modelo rodada a rodada.
+
+Como o modelo recebe **172 features**, o app nunca pede que o usuário as digite: ele lê a linha do
+piloto direto da ABT da camada Gold via **SQL Warehouse** e envia essa linha ao endpoint de serving.
+Cada tela abre com um resumo do que ela responde e um bloco *"Como ler esta tela"*, para que alguém
+que nunca viu o projeto consiga navegar sozinho.
+
+![Corrida pelo título](docs/screenshots/home.png)
+
+### Decisões de interface
+
+- **Controle perto do que ele muda.** O que vale para o app inteiro (temporada e corrida) fica na
+  barra lateral; o que muda o assunto daquela tela (piloto em foco, cenário do simulador) fica na
+  própria página, logo abaixo do cabeçalho. O título continua sendo o nome do piloto porque o
+  cabeçalho é renderizado num container reservado antes da leitura do seletor.
+- **Escolhe-se a corrida, não a data.** O seletor mostra `R11 · Hungarian GP · 26/07` em vez de uma
+  data solta — cada data de referência da ABT corresponde a uma sessão do calendário. O rótulo tem
+  duas formas: uma para varrer a lista e outra para caber no meio de uma frase.
+- **Pódio antes do gráfico.** A pergunta "quem ganha?" é respondida nos três primeiros cartões; o
+  grid completo vem depois, para quem quer o detalhe.
+- **Cauda cortada.** O gráfico mostra os 12 primeiros — numa temporada típica, dez pilotos ficam em
+  0,0% e viram ruído. A tabela completa continua a um clique.
+- **Probabilidade x fatia do título.** As probabilidades são estimativas independentes por piloto e
+  não somam 100%; a *fatia* normaliza para somar. As duas aparecem lado a lado, porque respondem a
+  perguntas diferentes.
+- **Percentil, não diferença relativa.** No raio-x, a comparação com o grid usa percentil: em
+  contadores cuja mediana é zero (vitórias, poles), qualquer razão contra zero satura em +100% e
+  todas as barras ficam iguais.
+- **Temporada em curso é sinalizada.** Para o ano corrente, `flChampion` marca o líder de pontos, não
+  um campeão — a tela avisa em vez de anunciar um título que ainda não existe.
+- **Paleta validada.** As cores dos gráficos passaram por checagem de daltonismo e contraste sobre a
+  superfície escura; o vermelho da F1 aparece só na identidade (barra de marca, pódio), nunca
+  codificando valor.
+
+### Telas
+
+| Tela | O que mostra |
+|---|---|
+| **Corrida pelo título** | Ranking de probabilidade de todos os pilotos na data de referência escolhida, fatia normalizada do título, pontos acumulados e conferência contra o campeão real (para a temporada em curso, mostra o líder de pontos e avisa que nada é resultado final) |
+| **Raio-x do piloto** | Probabilidade do piloto, variação em relação à rodada anterior, curva de evolução ao longo da temporada (com até 2 pilotos de comparação) e diferença dele para a mediana do grid nas features de maior peso |
+| **Simulador** | Sliders sobre as features mais importantes a partir do cenário real do piloto; cada ajuste reenvia a linha ao endpoint e mostra a nova probabilidade e a nova posição no ranking |
+| **Sobre o modelo** | ROC AUC (treino/teste/out-of-time), curva ROC, importância das variáveis e o mapa das camadas do pipeline |
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/piloto.png" alt="Raio-x do piloto"><br><sub>Raio-x do piloto</sub></td>
+    <td width="50%"><img src="docs/screenshots/simulador.png" alt="Simulador"><br><sub>Simulador</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/modelo.png" alt="Sobre o modelo"><br><sub>Sobre o modelo</sub></td>
+  </tr>
+</table>
+
+### Como rodar localmente
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env          # preencha os dois valores obrigatórios
+streamlit run streamlit_app.py
+```
+
+O `.env` (já ignorado pelo git) precisa de duas variáveis:
+
+```dotenv
+DATABRICKS_TOKEN=dapi...                             # PAT com CAN QUERY no serving endpoint
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxxxxxxxxx  # SQL Warehouse > Connection details
+```
+
+| Variável | Onde pegar no Databricks |
+|---|---|
+| `DATABRICKS_TOKEN` | Ícone do usuário → **Settings → Developer → Access tokens → Generate new token** |
+| `DATABRICKS_HTTP_PATH` | **SQL → SQL Warehouses →** (seu warehouse) **→ Connection details →** campo *HTTP path* |
+
+`SERVING_ENDPOINT_URL`, `DATABRICKS_HOST`, `ABT_TABLE` e `RESULTS_TABLE` já têm default no código e só
+precisam ser definidos se mudarem de workspace, endpoint ou nome de tabela.
+
+### Publicação (Streamlit Community Cloud)
+
+O app está publicado em **[f1championsmodel.streamlit.app](https://f1championsmodel.streamlit.app)**.
+
+Para republicar a partir de um fork: aponte o app para `streamlit_app.py` (o `requirements.txt` da
+raiz é instalado automaticamente) e configure os segredos. O `.env` **não** sobe para o repositório —
+no painel do app, vá em **Settings → Secrets** e cole os mesmos valores em formato TOML (a leitura de
+`st.secrets` tem prioridade sobre o ambiente):
+
+```toml
+DATABRICKS_TOKEN = "dapi..."
+DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/xxxxxxxxxx"
+```
+
+O SQL Warehouse serverless hiberna quando ocioso: a primeira consulta depois de um período parado
+leva ~25s para acordar. As respostas ficam em cache por 30 min.
+
+### Diagnóstico de credenciais
+
+```bash
+python scripts/check_auth.py     # não imprime o token; mostra tipo, escopos e o que ele alcança
+```
+
+| Erro | Causa | Correção |
+|---|---|---|
+| `access token does not have required scopes: sql` | O token é OAuth (JWT) sem o escopo `sql` — não é um PAT | Gere um PAT em **Settings → Developer → Access tokens** (começa com `dapi`) |
+| `Invalid access token` / 401 | Token expirado ou inválido | Gere outro e atualize o `.env` |
+| `Multiple Pages specified with URL pathname` | Duas `st.Page` com o mesmo `url_path` | Cada `st.Page` precisa de `url_path` explícito |
+| Ranking todo em 0% ou 100% | Endpoint devolve classe, não probabilidade | Ver o aviso sobre `serve_proba.py` acima |
+
+### Estrutura do app
+
+```
+streamlit_app.py             # entrypoint e navegação
+f1_app/
+├── config.py                # segredos e endpoints
+├── data.py                  # queries no SQL Warehouse (com cache)
+├── scoring.py               # cliente do endpoint de serving
+├── charts.py                # gráficos Altair
+├── theme.py                 # tema escuro, tokens de cor e componentes de layout
+├── model_meta.py            # métricas e importâncias lidas dos artefatos
+├── ui.py                    # componentes compartilhados (cabeçalho, barra lateral)
+└── views/                   # uma tela por arquivo
+assets/brand.svg             # marca exibida no topo da barra lateral
+docs/screenshots/            # capturas usadas neste README
+scripts/probe_endpoint.py    # diagnóstico do endpoint (formato de payload e tipo de saída)
+scripts/check_auth.py        # diagnóstico do token (tipo, escopos, alcance)
+```
+
+> ⚠️ **Probabilidade vs. classe**: por padrão o flavor `mlflow.sklearn` serve `predict()`, que devolve
+> a classe (0/1) — inútil para ranquear pilotos (foi o comportamento observado no endpoint em 01/09/2026:
+> Verstappen e Norris em 100%, todo o resto em 0%). A correção é `pyfunc_predict_fn="predict_proba"` no
+> `log_model` — já aplicado em `ml_champion/train.py`. Para corrigir o modelo **já registrado**, sem
+> retreinar, rode `ml_champion/serve_proba.py` num notebook e aponte o endpoint para a nova versão.
+> O app detecta o caso e avisa na tela em vez de exibir um ranking sem sentido.
 
 ---
 
