@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 
 import pandas as pd
 import streamlit as st
@@ -10,6 +11,17 @@ import streamlit as st
 from f1_app.config import get_settings
 
 TTL = 30 * 60  # 30 min
+
+# O warehouse serverless desliga sozinho (auto_stop) e, ao ser acordado pela
+# propria conexao, recusa a criacao da sessao por alguns segundos. Nao e falha
+# de credencial nem de rede: e so esperar e tentar de novo.
+ESPERAS = (5, 10, 15, 20)  # segundos entre as tentativas
+TRANSITORIOS = (
+    "cannot create the resource",
+    "temporarily_unavailable",
+    "service_under_maintenance",
+    "warehouse is starting",
+)
 
 
 class WarehouseError(RuntimeError):
@@ -31,22 +43,42 @@ def _connect():
     )
 
 
-def _run(query: str) -> pd.DataFrame:
-    try:
-        with _connect() as conn, conn.cursor() as cur:
-            cur.execute(query)
-            try:
-                df = cur.fetchall_arrow().to_pandas()
-            except Exception:
-                rows = cur.fetchall()
-                cols = [c[0] for c in cur.description]
-                df = pd.DataFrame(rows, columns=cols)
-    except WarehouseError:
-        raise
-    except Exception as err:  # noqa: BLE001 -- erro do driver vira mensagem de UI
-        raise WarehouseError(str(err)) from err
+def _transitorio(err: Exception) -> bool:
+    texto = str(err).lower()
+    return any(marca in texto for marca in TRANSITORIOS)
+
+
+def _execute(query: str) -> pd.DataFrame:
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(query)
+        try:
+            df = cur.fetchall_arrow().to_pandas()
+        except Exception:
+            rows = cur.fetchall()
+            cols = [c[0] for c in cur.description]
+            df = pd.DataFrame(rows, columns=cols)
     df.columns = [c.lower() for c in df.columns]
     return df
+
+
+def _run(query: str) -> pd.DataFrame:
+    """Executa a query, insistindo enquanto o warehouse ainda esta subindo."""
+    for espera in ESPERAS + (None,):
+        try:
+            return _execute(query)
+        except WarehouseError:
+            raise  # credenciais ausentes: tentar de novo nao resolve
+        except Exception as err:  # noqa: BLE001 -- erro do driver vira mensagem de UI
+            if not _transitorio(err):
+                raise WarehouseError(str(err)) from err
+            if espera is None:  # ultima tentativa: desistimos explicando o porque
+                raise WarehouseError(
+                    "O SQL Warehouse nao ficou disponivel a tempo. Ele liga "
+                    "sozinho no primeiro acesso, mas leva ate um minuto -- "
+                    f"tente de novo em instantes.\n\n{err}"
+                ) from err
+            time.sleep(espera)
+    raise AssertionError("inalcancavel")  # pragma: no cover
 
 
 def _safe_date(value) -> str:
